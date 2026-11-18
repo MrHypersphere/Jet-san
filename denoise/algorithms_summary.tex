@@ -1,0 +1,133 @@
+% Summary of the denoising algorithms in denoise/.
+% Fragment: \input{algorithms_summary} inside a document that loads booktabs.
+
+\subsection{Denoising algorithms at a glance}
+
+\paragraph{What the code reads.}
+All algorithms are written in C++ (headers in \texttt{denoise/}). Two test
+set-ups feed them.
+\begin{description}
+  \item[Toy images] (\texttt{denoise\_test.cpp}, \texttt{wavelet\_test.cpp}).
+    These read no files. Every event is made in memory from a seeded
+    random-number generator (\texttt{toy\_jets.hpp}): a $64\times64$ picture of
+    the $(\eta,\phi)$ plane with pixels of $0.05$, holding one $100$~GeV toy jet
+    plus a thermal background ($15\,000$ particles over $|\eta|<3$, mean
+    $p_T=1.2$~GeV).
+  \item[Quark/gluon benchmark] (\texttt{benchmark.py}).
+    This reads \texttt{q3k.parquet} and \texttt{g3k.parquet}: $3000$
+    \textsc{Pythia}~8 $Z$+jet events each, one file with quark jets and one with
+    gluon jets, written by \texttt{generate\_samples.py}. Each event lists the
+    $p_T$, $\eta$ and $\phi$ of its final-state particles and the direction of
+    the hard parton. The background is not stored; it is rebuilt for every event
+    from a seed and the event number. Particles above $0.3$~GeV are kept. The
+    reference (``truth'') is the leading anti-$k_T$ jet ($R=0.4$,
+    $p_T>100$~GeV, $|\eta|<2.5$) built from the signal particles alone.
+\end{description}
+
+\paragraph{Results and rating.}
+Table~\ref{tab:denoise} compares the methods on the same $484$ benchmark jets
+($272$ quark, $212$ gluon; $700$ events per class).
+
+\begin{table}[htbp]
+  \centering
+  \caption{Denoising methods on the quark/gluon benchmark. Bias is the median
+    and spread the robust width (interquartile range$/1.349$) of reconstructed
+    minus true jet $p_T$. AUC measures how well girth alone separates quark
+    from gluon jets ($0.5$ is none; uncertainty about $\pm0.02$). $g-q$ is the
+    gluon-jet bias minus the quark-jet bias. The rating is the mean of five
+    scores from $0$ to $10$ (jet $p_T$; mass and girth; quark/gluon separation
+    kept; equal treatment of quark and gluon jets; robustness to its own
+    assumptions), assigned by judgement from the measured numbers.}
+  \label{tab:denoise}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Method & $p_T$ bias & $p_T$ spread & AUC & $g-q$ & Rating \\
+           & [GeV]      & [GeV]        &     & [GeV] & (0--10) \\
+    \midrule
+    Posterior weights            & $+1.5$   & $10.2$ & $0.770$ & $-9.5$ & $7.0$ \\
+    Constituent subtraction      & $-3.0$   & $16.4$ & $0.716$ & $-1.3$ & $6.6$ \\
+    Wavelet, iterative           & $-11.0$  & $11.7$ & $0.737$ & $-7.7$ & $6.2$ \\
+    Area subtraction ($\rho A$)  & $-6.8$   & $19.7$ & $0.687$ & $0.0$  & $5.0$ \\
+    DCT thresholding             & $+35.1$  & $14.1$ & $0.748$ & $-6.7$ & $4.6$ \\
+    Wavelet, single pass         & $+47.8$  & $19.1$ & $0.720$ & $+0.2$ & $4.2$ \\
+    No correction                & $+233.2$ & $29.2$ & $0.687$ & $+5.0$ & --    \\
+    \midrule
+    True jets (best possible)    &          &        & $0.790$ &        &       \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{The algorithms.}
+\begin{description}
+  \item[Posterior weights] (\texttt{posterior\_weights} in
+    \texttt{jetdenoise.hpp}; rating $7.0$).
+    For every particle near a jet it asks: how likely is this particle to
+    belong to the jet and not to the background? The answer,
+    $w=s/(s+b)$, depends on the particle's $p_T$ and its distance $r$ from the
+    jet axis, and the particle's $p_T$ is scaled by $w$.
+    \emph{Reads:} the event's particles; jet axes (taken from
+    constituent-subtracted jets above $50$~GeV); a signal template $s(p_T,r)$
+    built from separate clean \textsc{Pythia} jets (events $2000$--$3000$ of
+    each file); and the background spectrum $b(p_T)$ measured in the same event
+    more than $0.8$ away from any jet. Most accurate on every measure, but it
+    treats quark and gluon jets differently and relies on the template.
+
+  \item[Constituent subtraction] (\texttt{constituent\_subtract} in
+    \texttt{jetdenoise.hpp}; rating $6.6$).
+    It covers the event with a grid of imaginary ``ghost'' particles that carry
+    the expected background, $\rho(\phi)$ times the area of a grid cell, and
+    cancels each ghost against real particles within $\Delta R<0.25$, nearest
+    first. \emph{Reads:} the event's particles and the background map
+    $\rho(\phi)$. It needs no knowledge of what a jet looks like, and treats
+    quark and gluon jets almost equally.
+
+  \item[Wavelet, iterative] (\texttt{waveletDenoise} in
+    \texttt{wavelet\_denoise.hpp}; rating $6.2$).
+    It splits a picture of the event into three layers of detail (features
+    about $0.1$, $0.2$ and $0.4$ across) plus a smooth layer, using the starlet
+    wavelet transform. Only features standing $4\sigma$ above the fluctuations
+    of their layer ($6\sigma$ on the finest) are kept, and the jet is rebuilt
+    from them in ten passes while being kept non-negative. The smooth remainder
+    is the background, which also gives its level $\rho$ and its fluctuation on
+    each scale. \emph{Reads:} a picture only (a toy image, or an event binned
+    into $120\times126$ pixels). Sharp jet shapes, but it loses about $9\%$ of
+    the jet $p_T$.
+
+  \item[Area subtraction, $\rho A$] (\texttt{background\_map} in
+    \texttt{jetdenoise.hpp}; \texttt{pedestal} in \texttt{denoise\_test.cpp};
+    rating $5.0$).
+    It measures the typical background level $\rho(\phi)$ from the median of
+    patches of the event, including its slow variation with $\phi$, and
+    subtracts $\rho$ times the jet area from the jet $p_T$. \emph{Reads:} the
+    event's particles. Simple and even-handed, but it corrects only the jet
+    $p_T$; the jet's shape is left untouched.
+
+  \item[DCT thresholding] (\texttt{dctDenoise} in \texttt{dct\_denoise.hpp};
+    rating $4.6$).
+    After the background level is removed, the picture is cut into overlapping
+    $8\times8$ patches. Each patch is rewritten as a sum of cosine waves, waves
+    weaker than $3\sigma$ are dropped, and the patches are averaged back
+    together; $\sigma$ is estimated from the data. \emph{Reads:} a picture
+    only, or a time series (it is also used on a toy gravitational-wave signal
+    in \texttt{gw\_test.cpp}). It assumes Gaussian noise, which a particle
+    background is not, and leaves $35$~GeV of background in the jet.
+
+  \item[Wavelet, single pass] (\texttt{starlet\_denoise} in
+    \texttt{jetdenoise.hpp}; rating $4.2$).
+    The same wavelet transform with five layers, keeping everything above
+    $3\sigma$ in one pass. \emph{Reads:} the event's particles and
+    $\rho(\phi)$. The threshold is too low for this background: about $13\%$ of
+    a background-only event passes, leaving $48$~GeV in the jet.
+
+  \item[Median, Gaussian and bilateral filters] (OpenCV calls in
+    \texttt{denoise\_test.cpp}; not rated).
+    Standard picture-smoothing filters that replace each pixel by the median or
+    a weighted average of its neighbours. \emph{Reads:} a toy image. They were
+    tested on toy images only, where they smooth the picture without removing
+    the background: of the $249$~GeV of background in the jet cone they leave
+    $93$~GeV (median), $232$~GeV (bilateral) and $248$~GeV (Gaussian).
+\end{description}
+
+For the benchmark, the two picture-based methods (DCT and iterative wavelet)
+were applied by binning each event into a $120\times126$ picture and scaling
+every particle by the fraction of its pixel that the method kept.

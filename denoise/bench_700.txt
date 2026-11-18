@@ -1,0 +1,30 @@
+#--------------------------------------------------------------------------
+#                         FastJet release 3.5.2
+#                 M. Cacciari, G.P. Salam and G. Soyez                  
+#     A software package for jet finding and analysis at colliders      
+#                           https://fastjet.fr                           
+#	                                                                      
+# Please cite EPJC72(2012)1896 [arXiv:1111.6097] if you use this package
+# for scientific work and optionally PLB641(2006)57 [hep-ph/0512210].   
+#                                                                       
+# FastJet is provided without warranty under the GNU GPL v2 or higher.  
+# It uses T. Chan's closest pair algorithm, S. Fortune's Voronoi code,
+# CGAL and 3rd party plugin jet algorithms. See COPYING file for details.
+#--------------------------------------------------------------------------
+signal template from 768 training jets
+
+truth jets: 463 (quark 254, gluon 209)
+random-cone delta-pT: mean -1.2 GeV, width 20.6 GeV (robust 20.9)
+v2 estimate minus truth: mean -0.0018, spread 0.0087
+girth q/g AUC on truth jets (ceiling): 0.730
+
+method          eff  dpT med  dpT wid  dm med  dm wid   dg med   dg wid    AUC  ms/evt
+--------------------------------------------------------------------------------------
+raw           1.000   +230.6     26.9   +73.9     9.2  +0.1355   0.0291  0.617       -
+rhoA          1.000     -6.4     20.3   +73.9     9.2  +0.1355   0.0291  0.617       -
+CS dR0.25     1.000     -3.2     16.5    +2.0     5.9  +0.0116   0.0233  0.663    49.2
+WAV k3c3      1.000    +47.3     19.9   +17.5     7.0  +0.0576   0.0248  0.668     6.9
+POST          1.000     +0.8     12.0    +0.8     3.9  +0.0025   0.0137  0.692     6.3
+
+dpT, dm in GeV; dg = girth residual. wid = IQR/1.349. AUC uses girth only.
+ms/evt: C++ time per event; POST excludes the CS pass and clustering it reuses for jet axes.
